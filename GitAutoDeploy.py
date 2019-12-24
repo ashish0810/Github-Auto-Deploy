@@ -10,6 +10,7 @@ class GitAutoDeploy(BaseHTTPRequestHandler):
     config = None
     quiet = False
     daemon = False
+    pids = {}
 
     @classmethod
     def getConfig(myClass):
@@ -80,7 +81,7 @@ class GitAutoDeploy(BaseHTTPRequestHandler):
         if(not self.quiet):
             print "\nPost push request received"
             print 'Updating ' + path
-        call(['cd "' + path + '" && git fetch'], shell=True)
+        call(['cd "' + path + '" && git pull'], shell=True)
 
     def deploy(self, path):
         config = self.getConfig()
@@ -94,7 +95,22 @@ class GitAutoDeploy(BaseHTTPRequestHandler):
                     if branch is None or branch == self.branch:
                         if(not self.quiet):
                             print 'Executing deploy command'
-                        call(['cd "' + path + '" && ' + repository['deploy']], shell=True)
+                        child_pid = 0
+                        if 'continuous' in repository and repository['continuous'] == 'node':
+                            child_pid = os.fork()
+                            if child_pid == 0:
+                                if not self.pids:
+                                    self.pids = {}
+                                if path in self.pids:
+                                    print 'Killing previous deployment process ' + str(self.pids[path])
+                                    call('killall -9 node', shell=True)
+                                print 'Starting continuous deployment'
+                                call(['cd "' + path + '" && ' + repository['deploy']], shell=True)
+                            else:
+                                self.pids[path] = child_pid
+                        else:
+                            print 'Starting non-continuous deployment'
+                            call(['cd "' + path + '" && ' + repository['deploy']], shell=True)
                         
                     elif not self.quiet:
                         print 'Push to different branch (%s != %s), not deploying' % (branch, self.branch)
